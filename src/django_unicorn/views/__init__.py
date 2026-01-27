@@ -3,11 +3,12 @@ from functools import wraps
 
 from django.http import HttpRequest, JsonResponse
 from django.http.response import HttpResponseNotModified
-from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_exempt, csrf_protect, ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from django_unicorn.decorators import timed
 from django_unicorn.errors import RenderNotModifiedError, UnicornViewError
+from django_unicorn.settings import get_setting
 from django_unicorn.views.message import UnicornMessageHandler
 from django_unicorn.views.request import ComponentRequest
 
@@ -33,13 +34,27 @@ def handle_error(view_func):
     return wraps(view_func)(wrapped_view)
 
 
+def csrf_handle(func):
+    """
+    In case if `USE_CSRF_TOKEN` is set to False
+    CSRF token is not required.
+    """
+    if get_setting("USE_CSRF_TOKEN", True):
+        return ensure_csrf_cookie(csrf_protect(func))
+    return csrf_exempt(func)
+
+
 @timed
 @handle_error
-@ensure_csrf_cookie
-@csrf_protect  # type: ignore
+@csrf_handle  # type: ignore
 @require_POST  # type: ignore
 def message(request: HttpRequest, component_name: str | None = None) -> JsonResponse:  # type: ignore
     """
+    Overwrite Reason:
+        Optionally Ignore `CSRF` check for effective varnish caching remove `Cookie` from `Vary` header.
+        Use `csrf_handle` decorator to optionally enable requests without `CSRF` token,
+        based on `USE_CSRF_TOKEN` setting.
+    ----
     Endpoint that instantiates the component and does the correct action
     (set an attribute or call a method) depending on the JSON payload in the body.
 
