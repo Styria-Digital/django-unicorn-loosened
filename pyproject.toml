@@ -3,7 +3,7 @@ name = "django-unicorn-loosened"
 version = "0.64.0"
 description = "An alternate version of a magical full-stack framework for Django."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
     { name = "Adam Hill", email = "unicorn@adamghill.com" },
