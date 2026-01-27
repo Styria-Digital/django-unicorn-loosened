@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  LINT_PYTHON_VERSION: 3.9
+  LINT_PYTHON_VERSION: 3.11
 
 jobs:
   lint:
