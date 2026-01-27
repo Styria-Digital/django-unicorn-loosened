@@ -1,0 +1,84 @@
+import logging
+from functools import wraps
+
+from django.http import HttpRequest, JsonResponse
+from django.http.response import HttpResponseNotModified
+from django.views.decorators.csrf import csrf_exempt, csrf_protect, ensure_csrf_cookie
+from django.views.decorators.http import require_POST
+
+from django_unicorn.decorators import timed
+from django_unicorn.errors import RenderNotModifiedError, UnicornViewError
+from django_unicorn.settings import get_setting
+from django_unicorn.views.message import UnicornMessageHandler
+from django_unicorn.views.request import ComponentRequest
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+
+def handle_error(view_func):
+    """
+    Returns a JSON response with an error if necessary.
+    """
+
+    def wrapped_view(*args, **kwargs):
+        try:
+            return view_func(*args, **kwargs)
+        except UnicornViewError as e:
+            return JsonResponse({"error": str(e)})
+        except RenderNotModifiedError:
+            return HttpResponseNotModified()
+        except AssertionError as e:
+            return JsonResponse({"error": str(e)})
+
+    return wraps(view_func)(wrapped_view)
+
+
+def csrf_handle(func):
+    """
+    In case if `USE_CSRF_TOKEN` is set to False
+    CSRF token is not required.
+    """
+    if get_setting("USE_CSRF_TOKEN", True):
+        return ensure_csrf_cookie(csrf_protect(func))
+    return csrf_exempt(func)
+
+
+@timed
+@handle_error
+@csrf_handle  # type: ignore
+@require_POST  # type: ignore
+def message(request: HttpRequest, component_name: str | None = None) -> JsonResponse:  # type: ignore
+    """
+    Overwrite Reason:
+        Optionally Ignore `CSRF` check for effective varnish caching remove `Cookie` from `Vary` header.
+        Use `csrf_handle` decorator to optionally enable requests without `CSRF` token,
+        based on `USE_CSRF_TOKEN` setting.
+    ----
+    Endpoint that instantiates the component and does the correct action
+    (set an attribute or call a method) depending on the JSON payload in the body.
+
+    Args:
+        param request: HttpRequest for the function-based view.
+        param: component_name: Name of the component, e.g. "hello-world".
+
+    Returns:
+        `JsonRequest` with the following structure in the body:
+        {
+        "id": component_id,
+        "dom": html,  # re-rendered version of the component after actions in the payload are completed
+        "data": {},  # updated data after actions in the payload are completed
+        "errors": {},  # form validation errors
+        "return": {}, # optional return value from an executed action
+        "parent": {}  # optional representation of the parent component
+        }
+    """
+
+    if not component_name:
+        raise AssertionError("Missing component name in url")
+
+    component_request = ComponentRequest(request, component_name)
+    handler = UnicornMessageHandler(request)
+    json_result = handler.handle(component_request)
+
+    return JsonResponse(json_result, json_dumps_params={"separators": (",", ":")})
